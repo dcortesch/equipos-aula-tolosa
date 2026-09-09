@@ -295,8 +295,8 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 min-h-0 pb-2">
-                <!-- Helper -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 flex-1 min-h-0 pb-2">
+                <div class="flex flex-col bg-gray-100 rounded-3xl border shadow-sm overflow-hidden h-full"><div class="p-4 font-bold">Pendiente de valorar <span id="count-unassessed">0</span></div><div id="zone-unassessed" class="p-4 overflow-y-auto flex-1 drop-zone space-y-2" ondrop="drop(event, 'unassessed')" ondragover="allowDrop(event)"></div></div><!-- Helper -->
                 <div class="flex flex-col bg-[#DCEDC8] rounded-3xl border border-[#C5E1A5] shadow-sm overflow-hidden h-full">
                     <div class="bg-[#C5E1A5]/50 p-4 border-b border-[#AED581] font-bold text-gray-700 flex justify-between items-center">
                         <span class="flex items-center gap-2"><i class="ph-fill ph-hand-heart text-green-700"></i> Ayuda</span>
@@ -532,7 +532,7 @@
     </div>
 
     <section id="tolosa-tools" aria-label="Herramientas Tolosa">
-<div class="teacher-only"><label>Mis grupos <select id="tolosa-group"><option>1º ESO E</option><option>3º ESO A</option><option>3º ESO B</option></select></label><button id="open-group">Abrir grupo</button><button id="backup">Descargar copia de todos los grupos</button><label>Restaurar copia <input id="restore" type="file" accept=".json"></label>
+<div class="teacher-only"><label>Mis grupos <select id="tolosa-group"><option>1º ESO E</option><option>3º ESO A</option><option>3º ESO B</option></select></label><button id="open-group">Abrir grupo</button><button id="backup">Descargar copia de todos los grupos</button><label>Importar copia privada <input id="restore" type="file" accept=".json"></label>
 <p>Guardado en este navegador. Descarga una copia para conservarla o llevarla a otro dispositivo. No incluyas copias con alumnado en GitHub.</p>
 <label>Actividad <input id="activity" placeholder="Problemas cooperativos" style="padding:8px"></label>
 <details><summary>Separaciones entre compañeros</summary><p>Una pareja por línea, con los nombres exactos separados por |. Ejemplo: Alumno 01 | Alumno 02.</p><textarea id="separations" rows="3"></textarea></details>
@@ -647,7 +647,7 @@
             appState.students = lines.map((name, i) => ({
                 id: `s-${i}-${Date.now()}`,
                 name: name.trim(),
-                type: oldMap.get(name.trim()) || 'autonomous'
+                type: oldMap.get(name.trim()) || 'unassessed'
             }));
             renderConfigTab();
             showToast(isAuto ? "Ejemplo cargado" : "Datos guardados");
@@ -656,7 +656,7 @@
 
         // --- KANBAN ---
         function renderConfigTab() {
-            ['helper', 'autonomous', 'needs-help'].forEach(t => document.getElementById(`zone-${t}`).innerHTML = '');
+            ['helper', 'autonomous', 'needs-help', 'unassessed'].forEach(t => document.getElementById(`zone-${t}`).innerHTML = '');
             appState.students.forEach(s => document.getElementById(`zone-${s.type}`).appendChild(createCard(s)));
             updateCounts();
         }
@@ -687,7 +687,7 @@
             if(stu) { stu.type = newType; renderConfigTab(); }
         }
         function updateCounts() {
-            ['helper', 'autonomous', 'needs-help'].forEach(t => document.getElementById(`count-${t}`).innerText = appState.students.filter(s => s.type === t).length);
+            ['helper', 'autonomous', 'needs-help', 'unassessed'].forEach(t => document.getElementById(`count-${t}`).innerText = appState.students.filter(s => s.type === t).length);
         }
 
         // --- AULA ---
