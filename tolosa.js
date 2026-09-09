@@ -7,7 +7,7 @@ const copy=x=>JSON.parse(JSON.stringify(x));
 function validState(s){
  if(!s||typeof s.group!=='string'||typeof s.subject!=='string'||!Array.isArray(s.students)||!Array.isArray(s.distribution))return false;
  const ids=new Set();
- for(const a of s.students){if(!a||typeof a.id!=='string'||ids.has(a.id)||typeof a.name!=='string'||!['helper','autonomous','needs-help'].includes(a.type))return false;ids.add(a.id);}
+ for(const a of s.students){if(!a||typeof a.id!=='string'||ids.has(a.id)||typeof a.name!=='string'||!['helper','autonomous','needs-help','unassessed'].includes(a.type))return false;if(a.notes!==undefined&&typeof a.notes!=='string')return false;ids.add(a.id);}
  const assigned=new Set();
  for(const g of s.distribution){if(!Array.isArray(g))return false;for(const a of g){if(!a||!ids.has(a.id)||assigned.has(a.id))return false;assigned.add(a.id);}}
  return !s.distribution.length||assigned.size===ids.size;
@@ -23,13 +23,24 @@ function historyMenu(){const select=el('history');select.replaceChildren(new Opt
 // Escape every imported name before the original card renderer uses HTML.
 const escapeHTML=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const baseCard=createCard;
-createCard=function(s){return baseCard({...s,name:escapeHTML(s.name)});};
+createCard=function(s){
+ const card=baseCard({...s,name:escapeHTML(s.name)});
+ if(s.type==='unassessed')card.style.borderLeftColor='#64748b';
+ const details=document.createElement('details');details.className='teacher-only';details.draggable=false;
+ const summary=document.createElement('summary');summary.textContent='Notas docentes';
+ const box=document.createElement('textarea');box.value=s.notes||'';box.setAttribute('aria-label','Notas docentes de '+s.name);box.rows=4;box.style.cssText='display:block;width:100%;min-width:160px;padding:8px;color:#183450';
+ box.onchange=()=>{const real=appState.students.find(x=>x.id===s.id);if(real){real.notes=box.value;persist();}};
+ box.addEventListener('dragstart',e=>e.stopPropagation());details.append(summary,box);card.style.display='block';card.append(details);return card;
+};
 const baseSave=saveData;
 saveData=function(auto=false){
  const names=el('manual-names').value.split('\n').map(x=>x.trim()).filter(Boolean);
  if(new Set(names).size!==names.length){alert('Hay nombres repetidos. Añade un segundo apellido o identificador.');return;}
  if(!names.length)return;
- appState.distribution=[];baseSave(auto);renderClassroom();persist();historyMenu();
+ const previous=new Map(appState.students.map(x=>[x.name,x]));
+ appState.distribution=[];baseSave(auto);
+ appState.students=appState.students.map(x=>previous.has(x.name)?{...previous.get(x.name),type:x.type}:x);
+ renderConfigTab();renderClassroom();persist();historyMenu();
 };
 const baseDrop=drop;
 drop=function(e,t){baseDrop(e,t);appState.distribution=[];renderClassroom();persist();};
@@ -56,7 +67,16 @@ el('separations').onchange=persist;
 el('save-history').onclick=()=>{if(!appState.distribution.length)return alert('Genera primero los equipos.');archive.history.push({date:new Date().toLocaleString('es-ES'),activity:el('activity').value.trim()||'Actividad cooperativa',state:{...copy(appState),separations:el('separations').value}});persist();historyMenu();};
 el('load-history').onclick=()=>{const v=el('history').value;if(v==='')return;recover(archive.history[Number(v)].state);persist();switchTab('tab-aula');};
 el('backup').onclick=()=>{persist();const url=URL.createObjectURL(new Blob([JSON.stringify(archive,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='copia-privada-equipos-tolosa.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-el('restore').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>5000000)throw Error();const incoming=JSON.parse(await file.text());if(!validArchive(incoming))throw Error();if(!confirm('¿Reemplazar los grupos e historial locales con esta copia? Descarga antes una copia si quieres conservarlos.'))return;archive=incoming;appState.group='';persist();el('open-group').click();status('Copia restaurada.');}catch{alert('La copia no es válida. No se ha importado.');}finally{e.target.value='';}};
+el('restore').onchange=async e=>{try{
+ const file=e.target.files[0];if(!file)return;if(file.size>5000000)throw Error();const incoming=JSON.parse(await file.text());if(!validArchive(incoming))throw Error();
+ const groups=Object.keys(incoming.groups);const conflicts=groups.filter(g=>archive.groups[g]?.students.length);
+ if(conflicts.length&&!confirm('Se actualizarán estos grupos: '+conflicts.join(', ')+'. Los demás grupos y el historial se conservarán. ¿Continuar?'))return;
+ if(appState.group)persist();
+ archive.groups={...archive.groups,...incoming.groups};archive.history.push(...incoming.history);
+ const selected=groups.includes('1º ESO E')?'1º ESO E':groups[0];
+ if(selected){recover(archive.groups[selected]);el('tolosa-group').value=selected;}
+ persist();historyMenu();switchTab('tab-config');status('Copia importada. Revisa las notas y los perfiles pendientes.');
+ }catch{alert('La copia no es válida. No se ha importado.');}finally{e.target.value='';}};
 el('pupil-mode').onclick=()=>{const on=document.body.classList.toggle('pupil');el('pupil-mode').textContent=on?'Volver a vista docente':'Mostrar vista alumnado';if(on)switchTab('tab-aula');};
 const basePDF=generatePDF;
 generatePDF=function(){const before=document.body.classList.contains('pupil');document.body.classList.add('pupil');basePDF();setTimeout(()=>{if(!before)document.body.classList.remove('pupil');},1000);};
