@@ -1,0 +1,6 @@
+copia-privada-*.json
+*.xlsx
+*.xls
+*.csv
+.env
+.DS_Store
