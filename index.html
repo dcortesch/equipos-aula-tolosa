@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Equipos de aula · Tolosa</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Iconos Phosphor -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- SheetJS para leer Excel -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <!-- html2pdf para generar PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Fuentes de Google: Quicksand -->
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Quicksand', 'sans-serif'],
+                    },
+                    colors: {
+                        pastel: {
+                            bg: '#E8F5E9',
+                            primary: '#A5D6A7',
+                            secondary: '#81C784',
+                            accent: '#FFDAC1',
+                            text: '#2E4033',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body { 
+            background-color: #E8F5E9;
+            background-image: radial-gradient(#C8E6C9 1px, transparent 1px);
+            background-position: 0 0;
+            background-size: 30px 30px;
+            color: #2E4033;
+        }
+        
+        /* Estilos UI Modernos */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.05);
+        }
+
+        .btn-pastel {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-pastel:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px -10px rgba(0,0,0,0.1);
+        }
+
+        /* Drag & Drop */
+        .draggable-source { cursor: grab; }
+        .draggable-source:active { cursor: grabbing; }
+        .drop-zone { min-height: 150px; transition: all 0.2s; border-radius: 1rem; }
+        .drop-zone.drag-over { background-color: #f0fdf4; border: 2px dashed #81C784; transform: scale(1.01); }
+        
+        /* Badges de Alumnos */
+        .student-helper { background-color: #DCEDC8; border: 1px solid #AED581; color: #33691E; } 
+        .student-autonomous { background-color: #E1F5FE; border: 1px solid #81D4FA; color: #01579B; } 
+        .student-needs-help { background-color: #FFECB3; border: 1px solid #FFD54F; color: #BF360C; } 
+
+        /* Grid del aula */
+        .desk-group {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 12px;
+            min-height: 90px; 
+            display: flex;
+            flex-direction: row; 
+            flex-wrap: wrap; 
+            align-content: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+            position: relative;
+            transition: transform 0.2s;
+            page-break-inside: avoid;
+            break-inside: avoid;
+        }
+        .desk-group:hover {
+            transform: translateY(-2px);
+            border-color: #81C784;
+        }
+        .desk-group::before {
+            content: attr(data-label);
+            position: absolute;
+            top: -24px;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            font-weight: 700;
+            color: #718096;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* --- CONFIGURACIÓN CRÍTICA PDF --- */
+        
+        /* Por defecto, el área de impresión está oculta */
+        #print-area {
+            display: none;
+        }
+
+        /* ESTADO "GENERANDO PDF" */
+        /* Cuando el body tiene esta clase, ocultamos la app y mostramos solo el informe */
+        body.generating-pdf {
+            overflow: visible !important;
+            height: auto !important;
+            background: white !important;
+        }
+
+        /* Ocultar elementos de la interfaz */
+        body.generating-pdf header,
+        body.generating-pdf nav,
+        body.generating-pdf main,
+        body.generating-pdf footer,
+        body.generating-pdf #toast,
+        body.generating-pdf dialog {
+            display: none !important;
+        }
+
+        /* Mostrar área de impresión ocupando todo */
+        body.generating-pdf #print-area {
+            display: block !important;
+            position: relative;
+            width: 100%;
+            height: auto;
+            background: white;
+            z-index: 99999;
+        }
+
+        /* Estructura de página A4 */
+        .pdf-page {
+            width: 100%;
+            max-width: 210mm; /* A4 width */
+            min-height: 296mm; /* A4 height */
+            margin: 0 auto;
+            padding: 15mm;
+            background: white;
+            position: relative;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            page-break-after: always;
+            break-after: page;
+        }
+
+        .pdf-cover-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border: 4px double #A5D6A7; 
+            border-radius: 20px;
+            padding: 40px;
+            background: #FAFAFA;
+        }
+
+        /* Ajuste del mapa en PDF */
+        #print-map-container {
+            width: 100%;
+            flex: 1;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            overflow: visible;
+            margin-top: 20px;
+        }
+
+        #print-map-container > div {
+            display: grid !important;
+            gap: 15px !important;
+            width: 100%;
+        }
+        
+        dialog::backdrop {
+            background-color: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(4px);
+        }
+    </style>
+<style>
+#tolosa-tools{max-width:1100px;margin:12px auto;padding:18px;background:#e8f0fa;border:1px solid #a7bdd8;border-radius:16px;color:#183450}#tolosa-tools label{display:inline-block;margin:8px}#tolosa-tools button,#tolosa-tools select{padding:9px;border-radius:8px;background:white;border:1px solid #9baec4;margin:3px}#tolosa-tools textarea{width:100%;padding:10px;border:1px solid #9baec4;border-radius:8px}body.pupil .student-helper,body.pupil .student-autonomous,body.pupil .student-needs-help{background:#e8f0fa!important;color:#183450!important;border-color:#9baec4!important}body.pupil #tab-config,body.pupil #btn-tab-config,body.pupil #tab-datos,body.pupil #btn-tab-datos,body.pupil .teacher-only{display:none!important}#tolosa-status{font-weight:600;margin-top:8px}button:focus-visible,select:focus-visible{outline:3px solid #235bc4;outline-offset:2px}
+</style></head>
+<body class="h-screen flex flex-col overflow-hidden text-gray-700">
+
+    <!-- Encabezado -->
+    <header class="glass-panel z-10 m-4 rounded-2xl mb-0 border-b-4 border-pastel-secondary">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center gap-3">
+                    <div class="bg-pastel-secondary p-2 rounded-xl text-white shadow-sm">
+                        <i class="ph-bold ph-users-three text-2xl"></i>
+                    </div>
+                    <h1 class="text-xl font-bold text-gray-800 tracking-tight">Equipos de aula · Tolosa 2026–2027</h1>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navegación -->
+    <nav class="mt-4 px-4">
+        <div class="max-w-4xl mx-auto glass-panel rounded-full p-1 flex justify-between shadow-sm">
+            <button onclick="switchTab('tab-datos')" class="tab-btn flex-1 py-2 px-4 rounded-full font-bold text-sm transition-all text-gray-500 hover:bg-white/50" id="btn-tab-datos">1. DATOS</button>
+            <button onclick="switchTab('tab-config')" class="tab-btn flex-1 py-2 px-4 rounded-full font-bold text-sm transition-all text-gray-500 hover:bg-white/50" id="btn-tab-config">2. CONFIGURACIÓN</button>
+            <button onclick="switchTab('tab-aula')" class="tab-btn flex-1 py-2 px-4 rounded-full font-bold text-sm transition-all text-gray-500 hover:bg-white/50" id="btn-tab-aula">3. AULA</button>
+            <button onclick="switchTab('tab-export')" class="tab-btn flex-1 py-2 px-4 rounded-full font-bold text-sm transition-all text-gray-500 hover:bg-white/50" id="btn-tab-export">4. EXPORTACIÓN</button>
+        </div>
+    </nav>
+
+    <!-- Contenido Principal -->
+    <main class="flex-1 overflow-auto p-6 relative">
+        
+        <!-- PESTAÑA 1: DATOS -->
+        <div id="tab-datos" class="tab-content max-w-4xl mx-auto space-y-6">
+            <div class="glass-panel rounded-3xl p-8">
+                <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                    <i class="ph-duotone ph-identification-card text-pastel-secondary text-2xl"></i> Información del Grupo
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-500 mb-2 ml-1">Grupo</label>
+                        <select id="select-grupo" class="w-full rounded-xl border-gray-200 bg-white p-3 focus:ring-2 focus:ring-pastel-secondary outline-none transition">
+                            <option value="">Selecciona un grupo...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-500 mb-2 ml-1">Asignatura</label>
+                        <select id="select-asignatura" class="w-full rounded-xl border-gray-200 bg-white p-3 focus:ring-2 focus:ring-pastel-secondary outline-none transition">
+                            <option value="">Selecciona una asignatura...</option>
+                            <option>Biología</option><option>Conocimiento del medio</option><option>Economía</option><option>Educación Física</option>
+                            <option>Educación Plástica y Visual</option><option>Filosofía</option><option>Francés</option>
+                            <option>Geografía e Historia</option><option>Inglés</option><option>Latín</option>
+                            <option>Lengua</option><option>Matemáticas</option><option>Música</option>
+                            <option>Religión</option><option>Tecnología</option><option>Tutoría</option><option>Otra</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-panel rounded-3xl p-8">
+                <h2 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+                    <i class="ph-duotone ph-users text-pastel-secondary text-2xl"></i> Listado de Alumnado
+                </h2>
+                
+                <div class="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:bg-white hover:border-pastel-secondary transition-all cursor-pointer bg-white/50" id="drop-area" onclick="document.getElementById('file-input').click()">
+                    <i class="ph-duotone ph-file-arrow-up text-5xl text-pastel-secondary mb-3"></i>
+                    <p class="text-gray-600 font-medium">Arrastra aquí un archivo Excel o clica para buscar</p>
+                    <input type="file" id="file-input" class="hidden" accept=".csv,.txt,.xlsx,.xls">
+                </div>
+
+                <div class="mt-6">
+                    <label class="block text-sm font-bold text-gray-500 mb-2 ml-1">O pega la lista de nombres aquí:</label>
+                    <textarea id="manual-names" rows="5" class="w-full rounded-xl border-gray-200 bg-white p-3 focus:ring-2 focus:ring-pastel-secondary outline-none transition resize-none" placeholder="Juan García&#10;María López&#10;..."></textarea>
+                </div>
+
+                <div class="mt-6 flex flex-wrap gap-3">
+                    <button onclick="loadExampleData()" class="btn-pastel bg-white border border-gray-200 text-gray-600 py-2 px-5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm">
+                        <i class="ph-bold ph-magic-wand text-pastel-secondary"></i> Probar ejemplo
+                    </button>
+                    <button onclick="document.getElementById('instructions-modal').showModal()" class="btn-pastel bg-white border border-gray-200 text-gray-600 py-2 px-5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm">
+                        <i class="ph-bold ph-info text-blue-400"></i> Ayuda
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex justify-end pt-2">
+                <button onclick="saveData()" class="btn-pastel bg-gradient-to-r from-pastel-secondary to-green-400 text-white font-bold py-3 px-10 rounded-2xl shadow-lg flex items-center gap-2 text-lg">
+                    <i class="ph-bold ph-floppy-disk"></i> Guardar Datos
+                </button>
+            </div>
+        </div>
+
+        <!-- PESTAÑA 2: CONFIGURACIÓN -->
+        <div id="tab-config" class="hidden tab-content max-w-7xl mx-auto h-full flex flex-col">
+            <div class="glass-panel p-6 rounded-2xl mb-6 flex justify-between items-center shrink-0">
+                <h2 class="text-xl font-bold text-gray-800">Tipología de Alumnas/os</h2>
+                <div class="text-sm text-gray-500 bg-white px-3 py-1 rounded-lg shadow-sm border border-gray-100">
+                    <i class="ph-fill ph-hand-pointing mr-1"></i> Arrastra para clasificar
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 min-h-0 pb-2">
+                <!-- Helper -->
+                <div class="flex flex-col bg-[#DCEDC8] rounded-3xl border border-[#C5E1A5] shadow-sm overflow-hidden h-full">
+                    <div class="bg-[#C5E1A5]/50 p-4 border-b border-[#AED581] font-bold text-gray-700 flex justify-between items-center">
+                        <span class="flex items-center gap-2"><i class="ph-fill ph-hand-heart text-green-700"></i> Ayuda</span>
+                        <span id="count-helper" class="bg-white px-2 py-0.5 rounded-lg text-xs font-bold shadow-sm text-green-700">0</span>
+                    </div>
+                    <div id="zone-helper" class="p-4 overflow-y-auto flex-1 drop-zone space-y-2" ondrop="drop(event, 'helper')" ondragover="allowDrop(event)"></div>
+                </div>
+                <!-- Autonomous -->
+                <div class="flex flex-col bg-[#E1F5FE] rounded-3xl border border-[#B3E5FC] shadow-sm overflow-hidden h-full">
+                    <div class="bg-[#B3E5FC]/50 p-4 border-b border-[#81D4FA] font-bold text-gray-700 flex justify-between items-center">
+                        <span class="flex items-center gap-2"><i class="ph-fill ph-brain text-blue-700"></i> Autónomo</span>
+                        <span id="count-autonomous" class="bg-white px-2 py-0.5 rounded-lg text-xs font-bold shadow-sm text-blue-700">0</span>
+                    </div>
+                    <div id="zone-autonomous" class="p-4 overflow-y-auto flex-1 drop-zone space-y-2" ondrop="drop(event, 'autonomous')" ondragover="allowDrop(event)"></div>
+                </div>
+                <!-- Needs Help -->
+                <div class="flex flex-col bg-[#FFECB3] rounded-3xl border border-[#FFE082] shadow-sm overflow-hidden h-full">
+                    <div class="bg-[#FFE082]/50 p-4 border-b border-[#FFD54F] font-bold text-gray-700 flex justify-between items-center">
+                        <span class="flex items-center gap-2"><i class="ph-fill ph-lifebuoy text-orange-800"></i> Necesita Ayuda</span>
+                        <span id="count-needs-help" class="bg-white px-2 py-0.5 rounded-lg text-xs font-bold shadow-sm text-orange-800">0</span>
+                    </div>
+                    <div id="zone-needs-help" class="p-4 overflow-y-auto flex-1 drop-zone space-y-2" ondrop="drop(event, 'needs-help')" ondragover="allowDrop(event)"></div>
+                </div>
+            </div>
+            
+            <div class="mt-4 flex justify-end shrink-0">
+                 <button onclick="switchTab('tab-aula')" class="btn-pastel bg-white text-gray-600 border border-gray-200 font-bold px-6 py-3 rounded-xl hover:bg-gray-50 flex items-center gap-2">Siguiente <i class="ph-bold ph-arrow-right"></i></button>
+            </div>
+        </div>
+
+        <!-- PESTAÑA 3: AULA -->
+        <div id="tab-aula" class="hidden tab-content max-w-full h-full flex flex-col items-center">
+            <!-- Controles -->
+            <div class="w-full glass-panel rounded-3xl p-5 mb-6 shrink-0 max-w-7xl shadow-sm">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-end">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Agrupamiento</label>
+                        <div class="flex gap-4">
+                            <label class="inline-flex items-center cursor-pointer group">
+                                <input type="radio" name="agrupamiento" value="heterogeneo" checked class="form-radio text-pastel-secondary focus:ring-pastel-secondary">
+                                <span class="ml-2 text-sm font-bold text-gray-600 group-hover:text-gray-800">Heterogéneo</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer group">
+                                <input type="radio" name="agrupamiento" value="homogeneo" class="form-radio text-pastel-secondary focus:ring-pastel-secondary">
+                                <span class="ml-2 text-sm font-bold text-gray-600 group-hover:text-gray-800">Homogéneo</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Integrantes</label>
+                        <select id="select-espacio" class="w-full rounded-lg border-gray-200 bg-white p-2 text-sm font-medium outline-none focus:ring-2 focus:ring-pastel-secondary">
+                            <option value="2">2 alumnos</option>
+                            <option value="3">3 alumnos</option>
+                            <option value="4" selected>4 alumnos</option>
+                            <option value="5">5 alumnos</option>
+                            <option value="6">6 alumnos</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Ancho del Aula</label>
+                        <select id="select-grid-cols" class="w-full rounded-lg border-gray-200 bg-white p-2 text-sm font-medium outline-none focus:ring-2 focus:ring-pastel-secondary" onchange="updateGridColumns()">
+                            <option value="2">2 Grupos</option>
+                            <option value="3" selected>3 Grupos</option>
+                            <option value="4">4 Grupos</option>
+                            <option value="5">5 Grupos</option>
+                            <option value="6">6 Grupos</option>
+                            <option value="7">7 Grupos</option>
+                            <option value="8">8 Grupos</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="distributeStudents()" class="flex-1 btn-pastel bg-gradient-to-r from-pastel-secondary to-green-400 text-white font-bold py-2 px-4 rounded-xl shadow-md">
+                            <i class="ph-bold ph-shuffle"></i> DISTRIBUIR
+                        </button>
+                        <button onclick="saveDistribution()" class="btn-pastel bg-gray-800 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-xl shadow-md">
+                            <i class="ph-bold ph-floppy-disk"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mapa del Aula - Estructura FLEX para fijar pizarra abajo -->
+            <div id="aula-container" class="w-full max-w-6xl aspect-[4/3] bg-white rounded-3xl border-8 border-gray-200 shadow-inner mx-auto flex flex-col overflow-hidden relative p-0">
+                
+                <!-- Área de mapa desplazable -->
+                <div id="aula-map-scroll" class="flex-1 overflow-y-auto p-10">
+                    <div id="aula-map" class="grid gap-8 justify-center pb-10 transition-all duration-300">
+                        <div class="col-span-full text-center text-gray-400 mt-20">
+                            <i class="ph-duotone ph-chalkboard-teacher text-7xl mb-4 opacity-50 text-pastel-secondary"></i>
+                            <p class="font-medium">Configura y pulsa "Distribuir"</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pizarra FIJA al fondo del contenedor -->
+                <div class="shrink-0 w-full flex justify-center pb-0 bg-gray-100/50 border-t border-gray-200">
+                    <div class="w-80 bg-gray-700 text-white text-center py-2 rounded-t-2xl shadow-lg text-sm font-bold uppercase tracking-widest no-print">
+                        PIZARRA
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PESTAÑA 4: EXPORTACIÓN -->
+        <div id="tab-export" class="hidden tab-content max-w-4xl mx-auto space-y-6">
+            <div class="glass-panel rounded-3xl p-10 text-center shadow-xl">
+                <div class="mb-6 inline-block p-4 rounded-full bg-red-50">
+                    <i class="ph-duotone ph-file-pdf text-6xl text-red-400"></i>
+                </div>
+                <h2 class="text-3xl font-bold text-gray-800 mb-2">Informe Listo</h2>
+                <p class="text-gray-500 mb-8 max-w-md mx-auto">Descarga un informe PDF con estilo profesional que incluye portada con datos y el mapa de la distribución.</p>
+                
+                <div class="flex flex-col sm:flex-row justify-center gap-4">
+                    <button onclick="generatePDF()" class="btn-pastel bg-gradient-to-r from-red-400 to-pink-400 text-white font-bold py-4 px-10 rounded-2xl shadow-lg shadow-pink-200 hover:shadow-pink-300 flex items-center justify-center gap-3 text-lg">
+                        <i class="ph-bold ph-download-simple"></i> Descargar PDF
+                    </button>
+                    
+                    <button onclick="resetApp()" class="btn-pastel bg-white border-2 border-gray-200 text-gray-500 font-bold py-4 px-8 rounded-2xl hover:bg-gray-50 flex items-center justify-center gap-2">
+                        <i class="ph-bold ph-arrow-counter-clockwise"></i> Reiniciar
+                    </button>
+                </div>
+            </div>
+
+            <div class="glass-panel rounded-3xl p-8">
+                <h3 class="font-bold text-gray-700 mb-4 uppercase text-xs tracking-wider border-b pb-2">Resumen</h3>
+                <div id="export-preview" class="text-sm text-gray-600 space-y-2">
+                    <p class="italic text-gray-400">No hay datos guardados aún.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white/80 backdrop-blur border-t border-gray-200 py-3 text-center text-xs text-gray-500 no-print z-10 font-bold">
+        Autor: <a href="https://blogsaverroes.juntadeandalucia.es/ellocodelamochila/" target="_blank" class="text-pastel-secondary hover:text-green-600 transition-colors">El loco de la mochila</a>
+    </footer>
+
+    <!-- MODAL INSTRUCCIONES -->
+    <dialog id="instructions-modal" class="rounded-3xl shadow-2xl p-0 w-full max-w-2xl bg-white overflow-hidden m-auto">
+        <div class="bg-gradient-to-r from-pastel-secondary to-green-200 p-6 flex justify-between items-center">
+            <h3 class="text-xl font-bold text-green-900 flex items-center gap-2"><i class="ph-bold ph-info"></i> Guía Rápida</h3>
+            <button onclick="document.getElementById('instructions-modal').close()" class="bg-white/50 hover:bg-white text-green-900 rounded-full w-8 h-8 flex items-center justify-center transition">
+                <i class="ph-bold ph-x"></i>
+            </button>
+        </div>
+        <div class="p-8 space-y-6 text-gray-600 overflow-y-auto max-h-[60vh]">
+            <div class="flex gap-4">
+                <div class="bg-green-100 text-green-800 w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shrink-0">1</div>
+                <div><h4 class="font-bold text-gray-800 text-lg">Datos</h4><p class="text-sm leading-relaxed">Selecciona el grupo y la asignatura. Pega la lista o sube un Excel.</p></div>
+            </div>
+            <div class="flex gap-4">
+                <div class="bg-blue-100 text-blue-800 w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shrink-0">2</div>
+                <div><h4 class="font-bold text-gray-800 text-lg">Configuración</h4><p class="text-sm leading-relaxed">Arrastra a los alumnos para clasificarlos por roles.</p></div>
+            </div>
+            <div class="flex gap-4">
+                <div class="bg-orange-100 text-orange-800 w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shrink-0">3</div>
+                <div><h4 class="font-bold text-gray-800 text-lg">Aula</h4><p class="text-sm leading-relaxed">Elige tamaño de grupos y ancho del aula. Pulsa Distribuir.</p></div>
+            </div>
+            <div class="flex gap-4">
+                <div class="bg-red-100 text-red-800 w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shrink-0">4</div>
+                <div><h4 class="font-bold text-gray-800 text-lg">Exportar</h4><p class="text-sm leading-relaxed">Descarga un PDF listo para imprimir.</p></div>
+            </div>
+        </div>
+        <div class="bg-gray-50 p-6 flex justify-end">
+            <button onclick="document.getElementById('instructions-modal').close()" class="bg-green-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-green-700 transition shadow-lg shadow-green-200">¡Entendido!</button>
+        </div>
+    </dialog>
+
+    <!-- ÁREA DE GENERACIÓN PDF (Contenedor Real) -->
+    <div id="print-area">
+        <!-- PÁGINA 1: PORTADA -->
+        <div class="pdf-page">
+            <div class="pdf-cover-content">
+                <div class="mb-8">
+                    <i class="ph-duotone ph-student text-8xl text-pastel-secondary"></i>
+                </div>
+                <h1 class="text-5xl font-bold text-gray-800 mb-4 tracking-tight">Distribución de Aula</h1>
+                <h2 class="text-2xl text-gray-500 mb-12 font-medium">Planificación de Equipos Cooperativos</h2>
+                
+                <div class="w-full max-w-2xl bg-white border border-gray-200 rounded-2xl p-8 shadow-sm grid grid-cols-2 gap-y-8 gap-x-12 text-left mb-12">
+                    <div>
+                        <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Grupo</p>
+                        <p class="text-2xl font-bold text-gray-800" id="cover-group">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Asignatura</p>
+                        <p class="text-2xl font-bold text-gray-800" id="cover-subject">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Fecha</p>
+                        <p class="text-2xl font-bold text-gray-800" id="cover-date">-</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-1">Total Alumnado</p>
+                        <p class="text-2xl font-bold text-gray-800" id="cover-total">-</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-8 justify-center text-sm font-medium">
+                    <div class="flex items-center gap-2 px-4 py-2 bg-[#DCEDC8] rounded-full border border-green-300 text-green-900">
+                        <div class="w-3 h-3 rounded-full bg-green-600"></div> Ayuda
+                    </div>
+                    <div class="flex items-center gap-2 px-4 py-2 bg-[#E1F5FE] rounded-full border border-blue-300 text-blue-900">
+                        <div class="w-3 h-3 rounded-full bg-blue-600"></div> Autónomo
+                    </div>
+                    <div class="flex items-center gap-2 px-4 py-2 bg-[#FFECB3] rounded-full border border-orange-300 text-orange-900">
+                        <div class="w-3 h-3 rounded-full bg-orange-600"></div> Necesita Ayuda
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- PÁGINA 2: MAPA -->
+        <div class="pdf-page">
+            <div class="flex flex-col h-full">
+                <h3 class="text-center font-bold text-3xl text-gray-700 uppercase tracking-widest border-b-2 border-gray-100 pb-6 mb-8">Mapa de Clase</h3>
+                
+                <div id="print-map-container">
+                    <!-- El mapa se clonará aquí -->
+                </div>
+                
+                <div class="mt-auto w-full bg-gray-800 text-white text-center py-3 font-bold rounded-t-xl uppercase text-sm tracking-widest">
+                    PIZARRA / PROFESOR
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-8 right-8 bg-gray-800 text-white px-6 py-4 rounded-2xl shadow-2xl transform translate-y-32 transition-transform duration-500 flex items-center gap-4 z-50 font-medium">
+        <div class="bg-pastel-secondary rounded-full p-1"><i class="ph-bold ph-check text-white"></i></div>
+        <span id="toast-msg">Acción completada</span>
+    </div>
+
+    <section id="tolosa-tools" aria-label="Herramientas Tolosa">
+<div class="teacher-only"><label>Mis grupos <select id="tolosa-group"><option>1º ESO E</option><option>3º ESO A</option><option>3º ESO B</option></select></label><button id="open-group">Abrir grupo</button><button id="backup">Descargar copia de todos los grupos</button><label>Restaurar copia <input id="restore" type="file" accept=".json"></label>
+<p>Guardado en este navegador. Descarga una copia para conservarla o llevarla a otro dispositivo. No incluyas copias con alumnado en GitHub.</p>
+<label>Actividad <input id="activity" placeholder="Problemas cooperativos" style="padding:8px"></label>
+<details><summary>Separaciones entre compañeros</summary><p>Una pareja por línea, con los nombres exactos separados por |. Ejemplo: Alumno 01 | Alumno 02.</p><textarea id="separations" rows="3"></textarea></details>
+<button id="save-history">Guardar distribución en historial</button><label>Historial <select id="history"><option value="">Selecciona una distribución</option></select></label><button id="load-history">Recuperar</button></div>
+<button id="pupil-mode">Mostrar vista alumnado</button><p id="tolosa-status" role="status" aria-live="polite">Listo. Abre uno de tus grupos para comenzar.</p>
+</section>
+    <script>
+        // --- ESTADO ---
+        const appState = { group: '', subject: '', students: [], distribution: [] };
+        
+        // --- COLORES TEMA ---
+        const activeTabClass = ['bg-white', 'text-green-700', 'shadow-md'];
+        const inactiveTabClass = ['text-gray-500', 'hover:bg-white/50'];
+
+        // --- INICIALIZACIÓN ---
+        document.addEventListener('DOMContentLoaded', () => {
+            populateGroups();
+            updateCounts();
+            setupDragAndDrop();
+            updateGridColumns(); 
+            switchTab('tab-datos');
+        });
+
+        function setupDragAndDrop() {
+            const dropArea = document.getElementById('drop-area');
+            const fileInput = document.getElementById('file-input');
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+                dropArea.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); });
+            });
+            dropArea.addEventListener('dragover', () => dropArea.classList.add('drag-over'));
+            dropArea.addEventListener('dragleave', () => dropArea.classList.remove('drag-over'));
+            dropArea.addEventListener('drop', (e) => {
+                dropArea.classList.remove('drag-over');
+                handleDropFile(e);
+            });
+            fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+        }
+
+        function populateGroups() {
+            const select = document.getElementById('select-grupo');
+            const levels = ['1º Primaria', '2º Primaria', '3º Primaria', '4º Primaria', '5º Primaria', '6º Primaria', '1º ESO', '2º ESO', '3º ESO', '4º ESO', '1º BACH', '2º BACH'];
+            const letters = ['A', 'B', 'C', 'D', 'E'];
+            levels.forEach(l => letters.forEach(le => {
+                const opt = document.createElement('option');
+                opt.value = `${l} ${le}`;
+                opt.textContent = `${l} ${le}`;
+                select.appendChild(opt);
+            }));
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove(...activeTabClass);
+                btn.classList.add(...inactiveTabClass);
+            });
+            document.getElementById(tabId).classList.remove('hidden');
+            const btn = document.getElementById('btn-' + tabId);
+            if(btn) {
+                btn.classList.remove(...inactiveTabClass);
+                btn.classList.add(...activeTabClass);
+            }
+            if(tabId === 'tab-export') updateExportPreview();
+        }
+
+        // --- DATOS ---
+        function loadExampleData() {
+            document.getElementById('select-grupo').value = "5º Primaria A";
+            document.getElementById('select-asignatura').value = "Matemáticas";
+            const names = ["Alejandro Ruiz", "Beatriz López", "Carlos Menez", "Diana Prince", "Elena Nito", "Fernando Alonso", "Gabriela Sabatini", "Hugo Silva", "Inés Arrimadas", "Javier Bardem", "Karol G", "Luis Fonsi", "María Carey", "Nacho Vidal", "Olga Tañón", "Pedro Pascal", "Quentin Tarantino", "Rosa Melano", "Sergio Ramos", "Teresa Campos", "Ursula Corberó", "Víctor Manuel", "Wanda Nara", "Xavi Hernández"];
+            document.getElementById('manual-names').value = names.join('\n');
+            saveData(true); 
+        }
+
+        function handleDropFile(e) { handleFiles(e.dataTransfer.files); }
+        function handleFiles(files) {
+            if (!files.length) return;
+            const file = files[0];
+            const reader = new FileReader();
+            if (file.name.match(/\.(xlsx|xls)$/)) {
+                reader.onload = (e) => {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const wb = XLSX.read(data, {type: 'array'});
+                        if (!wb.SheetNames.length) return alert("Excel vacío");
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        const json = XLSX.utils.sheet_to_json(ws, {header: 1});
+                        const names = json.map(r => r[0]).filter(n => n && String(n).trim());
+                        if(names.length) {
+                            document.getElementById('manual-names').value = names.join('\n');
+                            showToast(`Excel: ${names.length} alumnos.`);
+                        } else alert("Sin nombres en 1ª columna");
+                    } catch (err) { alert("Error leyendo Excel"); }
+                };
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.onload = (e) => { document.getElementById('manual-names').value = e.target.result; showToast("TXT cargado"); };
+                reader.readAsText(file);
+            }
+        }
+
+        function saveData(isAuto = false) {
+            const group = document.getElementById('select-grupo').value;
+            const subject = document.getElementById('select-asignatura').value;
+            const raw = document.getElementById('manual-names').value;
+            if (!group || !subject || !raw.trim()) return alert("Faltan datos");
+            
+            appState.group = group;
+            appState.subject = subject;
+            const oldMap = new Map(appState.students.map(s => [s.name, s.type]));
+            const lines = raw.split('\n').filter(l => l.trim());
+            appState.students = lines.map((name, i) => ({
+                id: `s-${i}-${Date.now()}`,
+                name: name.trim(),
+                type: oldMap.get(name.trim()) || 'autonomous'
+            }));
+            renderConfigTab();
+            showToast(isAuto ? "Ejemplo cargado" : "Datos guardados");
+            if(isAuto) setTimeout(() => switchTab('tab-config'), 500); else switchTab('tab-config');
+        }
+
+        // --- KANBAN ---
+        function renderConfigTab() {
+            ['helper', 'autonomous', 'needs-help'].forEach(t => document.getElementById(`zone-${t}`).innerHTML = '');
+            appState.students.forEach(s => document.getElementById(`zone-${s.type}`).appendChild(createCard(s)));
+            updateCounts();
+        }
+
+        function createCard(s) {
+            const div = document.createElement('div');
+            div.id = s.id;
+            let borderClass = 'border-l-4';
+            if(s.type === 'helper') borderClass += ' border-l-green-400';
+            else if(s.type === 'autonomous') borderClass += ' border-l-blue-400';
+            else borderClass += ' border-l-orange-400';
+            div.className = `${borderClass} p-3 mb-2 rounded-r-xl bg-white shadow-sm text-sm font-medium flex justify-between items-center draggable-source cursor-grab hover:shadow-md transition-all border border-gray-100`;
+            div.draggable = true;
+            div.ondragstart = (e) => { e.dataTransfer.setData("text", s.id); };
+            div.innerHTML = `<span class="text-gray-700">${s.name}</span><i class="ph-bold ph-dots-six-vertical text-gray-300"></i>`;
+            return div;
+        }
+
+        function allowDrop(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+        document.addEventListener('dragleave', e => { if(e.target.classList?.contains('drop-zone')) e.target.classList.remove('drag-over'); });
+        function drop(e, newType) {
+            e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+            const id = e.dataTransfer.getData("text");
+            const el = document.getElementById(id);
+            if(!el || e.currentTarget.contains(el)) return;
+            e.currentTarget.appendChild(el);
+            const stu = appState.students.find(s => s.id === id);
+            if(stu) { stu.type = newType; renderConfigTab(); }
+        }
+        function updateCounts() {
+            ['helper', 'autonomous', 'needs-help'].forEach(t => document.getElementById(`count-${t}`).innerText = appState.students.filter(s => s.type === t).length);
+        }
+
+        // --- AULA ---
+        function updateGridColumns() {
+            const cols = document.getElementById('select-grid-cols').value;
+            document.getElementById('aula-map').style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+        }
+
+        function distributeStudents() {
+            if(!appState.students.length) return alert("Sin alumnos");
+            const size = parseInt(document.getElementById('select-espacio').value);
+            const mode = document.querySelector('input[name="agrupamiento"]:checked').value;
+            let helpers = appState.students.filter(s => s.type === 'helper').sort(() => Math.random() - .5);
+            let autonomous = appState.students.filter(s => s.type === 'autonomous').sort(() => Math.random() - .5);
+            let needs = appState.students.filter(s => s.type === 'needs-help').sort(() => Math.random() - .5);
+            const numGroups = Math.ceil(appState.students.length / size);
+            let groups = Array.from({length: numGroups}, () => []);
+            
+            if(mode === 'heterogeneo') {
+                let idx = 0;
+                while(helpers.length) { groups[idx].push(helpers.pop()); idx = (idx + 1) % numGroups; }
+                idx = 0;
+                while(needs.length) { groups[idx].push(needs.pop()); idx = (idx + 1) % numGroups; }
+                while(autonomous.length) {
+                    let minG = groups.reduce((m, g) => g.length < m.length ? g : m, groups[0]);
+                    minG.push(autonomous.pop());
+                }
+            } else {
+                let all = [...helpers, ...autonomous, ...needs];
+                groups = [];
+                while(all.length) groups.push(all.splice(0, size));
+            }
+            appState.distribution = groups;
+            renderClassroom();
+        }
+
+        function renderClassroom() {
+            const map = document.getElementById('aula-map');
+            map.innerHTML = '';
+            appState.distribution.forEach((grp, i) => {
+                const div = document.createElement('div');
+                div.className = 'desk-group';
+                div.dataset.gid = i;
+                div.setAttribute('data-label', `MESA ${i + 1}`);
+                div.ondragover = e => { e.preventDefault(); div.style.backgroundColor = '#f0fdf4'; };
+                div.ondragleave = e => { div.style.backgroundColor = 'white'; };
+                div.ondrop = e => dropInDesk(e, i);
+                grp.forEach(s => {
+                    const badge = document.createElement('div');
+                    badge.id = `seat-${s.id}`;
+                    let cls = 'student-autonomous';
+                    if(s.type === 'helper') cls = 'student-helper';
+                    if(s.type === 'needs-help') cls = 'student-needs-help';
+                    badge.className = `${cls} px-2 py-1 text-xs font-bold rounded shadow-sm border cursor-move flex items-center justify-center select-none flex-1 min-w-[45%] h-auto text-center`;
+                    badge.textContent = s.name;
+                    badge.draggable = true;
+                    badge.ondragstart = e => { e.dataTransfer.setData("text", JSON.stringify(s)); };
+                    div.appendChild(badge);
+                });
+                map.appendChild(div);
+            });
+        }
+
+        function dropInDesk(e, tIdx) {
+            e.preventDefault(); e.currentTarget.style.backgroundColor = 'white';
+            try {
+                const sData = JSON.parse(e.dataTransfer.getData("text"));
+                let sG = -1, sI = -1;
+                appState.distribution.forEach((g, gi) => {
+                    const si = g.findIndex(s => s.id === sData.id);
+                    if(si !== -1) { sG = gi; sI = si; }
+                });
+                if(sG !== -1 && sG !== tIdx) {
+                    appState.distribution[tIdx].push(appState.distribution[sG].splice(sI, 1)[0]);
+                    renderClassroom();
+                }
+            } catch(err) {}
+        }
+
+        function saveDistribution() { showToast("Guardado temporalmente"); switchTab('tab-export'); }
+
+        function updateExportPreview() {
+            document.getElementById('cover-group').innerText = appState.group || "-";
+            document.getElementById('cover-subject').innerText = appState.subject || "-";
+            document.getElementById('cover-date').innerText = new Date().toLocaleDateString();
+            document.getElementById('cover-total').innerText = appState.students.length;
+            document.getElementById('export-preview').innerHTML = `<p><strong>Alumnos:</strong> ${appState.students.length} | <strong>Grupos:</strong> ${appState.distribution.length}</p>`;
+        }
+
+        function generatePDF() {
+            if(!appState.distribution.length) return alert("Primero genera una distribución en la pestaña AULA");
+            
+            updateExportPreview(); // Fill text fields in print-area
+            
+            // Setup Map in print-area
+            const mapContainer = document.getElementById('print-map-container');
+            const originalMap = document.getElementById('aula-map');
+            mapContainer.innerHTML = '';
+            
+            // Clone map node
+            const cloneMap = originalMap.cloneNode(true);
+            cloneMap.style.gridTemplateColumns = originalMap.style.gridTemplateColumns; 
+            
+            mapContainer.appendChild(cloneMap);
+
+            showToast("Generando PDF...");
+
+            // Switch view mode
+            document.body.classList.add('generating-pdf');
+            window.scrollTo(0, 0);
+
+            // Wait for DOM update
+            setTimeout(() => {
+                const element = document.getElementById('print-area');
+                const opt = {
+                    margin: [0, 0, 0, 0], // [top, left, bottom, right]
+                    filename: `equipos_${appState.group.replace(/\s+/g, '_')}.pdf`,
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { 
+                        scale: 2, 
+                        useCORS: true, 
+                        scrollY: 0,
+                    },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                    pagebreak: { mode: ['css', 'legacy'] }
+                };
+
+                html2pdf().set(opt).from(element).save()
+                    .then(() => {
+                        document.body.classList.remove('generating-pdf');
+                        showToast("¡PDF descargado!");
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        document.body.classList.remove('generating-pdf');
+                        showToast("Error al generar PDF");
+                    });
+            }, 500);
+        }
+
+        function resetApp() {
+            if(confirm("¿Estás seguro de que quieres borrar todos los datos y empezar de cero?")) {
+                location.reload();
+            }
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            document.getElementById('toast-msg').innerText = msg;
+            t.classList.remove('translate-y-32');
+            setTimeout(() => t.classList.add('translate-y-32'), 3000);
+        }
+    </script>
+<script src="tolosa.js"></script>
+</body>
+</html>
